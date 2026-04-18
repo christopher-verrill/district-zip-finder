@@ -6,9 +6,19 @@ let globalPromise = null;
 async function fetchAllPolygons() {
   if (globalCache) return globalCache;
   if (globalPromise) return globalPromise;
-  globalPromise = fetch("/data/zip_polygons.json")
-    .then((r) => r.json())
-    .then((d) => { globalCache = d; return d; });
+
+  globalPromise = Promise.all([
+    fetch("/data/zip_polygons_1.json").then(function(r) { return r.json(); }),
+    fetch("/data/zip_polygons_2.json").then(function(r) { return r.json(); }),
+  ]).then(function(chunks) {
+    var merged = {
+      type: "FeatureCollection",
+      features: chunks[0].features.concat(chunks[1].features)
+    };
+    globalCache = merged;
+    return merged;
+  });
+
   return globalPromise;
 }
 

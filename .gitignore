@@ -2,3 +2,5 @@ node_modules
 dist
 .DS_Store
 *.local
+public/data/zip_polygons.json
+cb_2020_us_zcta520_500k.zip

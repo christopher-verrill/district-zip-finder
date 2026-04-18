@@ -8,8 +8,8 @@ async function fetchAllPolygons() {
   if (globalPromise) return globalPromise;
 
   globalPromise = Promise.all([
-    fetch("/data/zip_polygons_1.json").then(function(r) { return r.json(); }),
-    fetch("/data/zip_polygons_2.json").then(function(r) { return r.json(); }),
+    fetch("./data/zip_polygons_1.json").then(function(r) { return r.json(); }),
+    fetch("./data/zip_polygons_2.json").then(function(r) { return r.json(); }),
   ]).then(function(chunks) {
     var merged = {
       type: "FeatureCollection",

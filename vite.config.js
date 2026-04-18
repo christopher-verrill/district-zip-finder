@@ -6,5 +6,5 @@ import react from '@vitejs/plugin-react'
 // Leave as '/' if deploying to a custom domain or user/org page (username.github.io)
 export default defineConfig({
   plugins: [react()],
-  base: './',
+  base: '/district-zip-finder/',
 })

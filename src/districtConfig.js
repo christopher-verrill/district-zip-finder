@@ -10,7 +10,7 @@ export const DISTRICT_TYPES = [
   {
     id: "federal",
     label: "U.S. Congressional District",
-    dataFile: "/data/congressional.json",
+    dataFile: "./data/congressional.json",
     ballotpedia: (cdPath) => {
       // cdPath format: "AL/001"
       const [state, num] = cdPath.split("/");
@@ -58,7 +58,7 @@ export const DISTRICT_TYPES = [
 {
   id: "state_house",
   label: "State House District",
-  dataFile: "/data/state_house.json",
+  dataFile: "./data/state_house.json",
   ballotpedia: (cdPath) => {
     const [state, num] = cdPath.split("/");
     const district = parseInt(num, 10);

@@ -11,9 +11,11 @@ export default function App() {
   const [wasteThreshold, setWasteThreshold] = useState(0);
   const [search, setSearch] = useState("");
   const [copied, setCopied] = useState(false);
+  const [showDMA, setShowDMA] = useState(false);
 
   const districtType = DISTRICT_TYPES.find((d) => d.id === districtTypeId);
   const { data, loading: dataLoading, error: dataError } = useDistrictData(districtType.dataFile);
+  const { data: dmaData } = useDistrictData(districtType.dmaFile || null);
 
   const allDistricts = useMemo(() => {
     if (!data) return [];
@@ -26,13 +28,11 @@ export default function App() {
     return allDistricts.filter((d) => d.toLowerCase().includes(q));
   }, [allDistricts, search]);
 
-  // ALL zips in the district (no threshold) — used for district-wide totals
   const allDistrictZips = useMemo(() => {
     if (!data || !selectedDistrict || !data[selectedDistrict]) return [];
     return data[selectedDistrict];
   }, [data, selectedDistrict]);
 
-  // ZIPs that pass the waste threshold
   const qualifyingZips = useMemo(() => {
     if (!allDistrictZips.length) return [];
     const minOverlap = (100 - wasteThreshold) / 100;
@@ -41,69 +41,143 @@ export default function App() {
       .sort((a, b) => b.overlap - a.overlap);
   }, [allDistrictZips, wasteThreshold]);
 
-  // Stats
   const stats = useMemo(() => {
     if (!allDistrictZips.length) return null;
-
-    // Total population IN the district (sum of district_pop across all ZIPs)
     const totalDistrictPop = allDistrictZips.reduce((s, z) => s + (z.district_pop || 0), 0);
-
-    // Population reached = sum of district_pop for qualifying ZIPs
     const reachedPop = qualifyingZips.reduce((s, z) => s + (z.district_pop || 0), 0);
-
-    // Total spend = sum of zip_pop for qualifying ZIPs (people you're paying to reach)
     const totalSpend = qualifyingZips.reduce((s, z) => s + (z.zip_pop || 0), 0);
-
-    // Waste = people reached outside district / total spend
     const outsidePop = qualifyingZips.reduce((s, z) => {
       const outside = (z.zip_pop || 0) - (z.district_pop || 0);
       return s + Math.max(0, outside);
     }, 0);
-
     const coveragePct = totalDistrictPop > 0 ? (reachedPop / totalDistrictPop) * 100 : 0;
     const wastePct = totalSpend > 0 ? (outsidePop / totalSpend) * 100 : 0;
-
-    return {
-      totalDistrictPop,
-      reachedPop,
-      totalSpend,
-      outsidePop,
-      coveragePct,
-      wastePct,
-    };
+    return { totalDistrictPop, reachedPop, totalSpend, outsidePop, coveragePct, wastePct };
   }, [allDistrictZips, qualifyingZips]);
-
 
 const recommendedThreshold = useMemo(() => {
   if (!allDistrictZips.length) return null;
   const totalDistrictPop = allDistrictZips.reduce((s, z) => s + (z.district_pop || 0), 0);
   if (totalDistrictPop === 0) return null;
 
+  const floor = districtType.recommendedCoverageFloor || 99;
+  const wasteCeiling = districtType.recommendedWasteCeiling ?? null;
+
+  // Pre-compute stats for all thresholds
+  const stats = [];
   for (let t = 0; t <= 99; t++) {
     const minOverlap = (100 - t) / 100;
     const zips = allDistrictZips.filter((z) => z.overlap >= minOverlap);
     const reached = zips.reduce((s, z) => s + (z.district_pop || 0), 0);
-    const coverage = (reached / totalDistrictPop) * 100;
-    if (coverage >= 99) return t;
+    const totalSpend = zips.reduce((s, z) => s + (z.zip_pop || 0), 0);
+    const outsidePop = zips.reduce((s, z) => s + Math.max(0, (z.zip_pop || 0) - (z.district_pop || 0)), 0);
+    const coverage = totalDistrictPop > 0 ? (reached / totalDistrictPop) * 100 : 0;
+    const waste = totalSpend > 0 ? (outsidePop / totalSpend) * 100 : 0;
+    const efficiency = totalSpend > 0 ? reached / totalSpend : 0;
+    stats.push({ t, coverage, waste, efficiency });
   }
 
-  let bestT = 99;
-  let bestCoverage = 0;
-  for (let t = 0; t <= 99; t++) {
-    const minOverlap = (100 - t) / 100;
-    const zips = allDistrictZips.filter((z) => z.overlap >= minOverlap);
-    const reached = zips.reduce((s, z) => s + (z.district_pop || 0), 0);
-    const coverage = (reached / totalDistrictPop) * 100;
-    if (coverage > bestCoverage) { bestCoverage = coverage; bestT = t; }
+if (wasteCeiling !== null) {
+  // Sort ZIPs by overlap descending
+  const sorted = [...allDistrictZips].sort((a, b) => b.overlap - a.overlap);
+
+  let cumulativeReached = 0;
+  let cumulativeSpend = 0;
+  let lastGoodT = 0;
+  let prevWastePct = 0;
+
+  for (let i = 0; i < sorted.length; i++) {
+    const z = sorted[i];
+
+    // Hard cutoff — never include ZIPs below 1% overlap
+    if (z.overlap < 0.01) break;
+
+    // Compute waste BEFORE adding this ZIP
+    const wasteBefore = cumulativeSpend > 0
+      ? ((cumulativeSpend - cumulativeReached) / cumulativeSpend) * 100
+      : 0;
+
+    // Compute waste AFTER adding this ZIP
+    const newSpend = cumulativeSpend + (z.zip_pop || 0);
+    const newReached = cumulativeReached + (z.district_pop || 0);
+    const wasteAfter = newSpend > 0
+      ? ((newSpend - newReached) / newSpend) * 100
+      : 0;
+
+    const wasteIncrease = wasteAfter - wasteBefore;
+    const marginalCoverage = stats[0] ? (z.district_pop || 0) / (allDistrictZips.reduce((s, z) => s + (z.district_pop || 0), 0)) * 100 : 0;
+
+    // Stop if this ZIP raises overall waste by >10pp AND contributes <1% district coverage
+    if (wasteIncrease > 0.5 && marginalCoverage < 1) break;
+
+    cumulativeReached = newReached;
+    cumulativeSpend = newSpend;
+    lastGoodT = Math.round((1 - z.overlap) * 100);
   }
+
+  // Check if we met the coverage floor
+  const minOverlap = (100 - lastGoodT) / 100;
+  const zips = allDistrictZips.filter((z) => z.overlap >= minOverlap);
+  const reached = zips.reduce((s, z) => s + (z.district_pop || 0), 0);
+  const totalDistrictPop = allDistrictZips.reduce((s, z) => s + (z.district_pop || 0), 0);
+  const coverage = totalDistrictPop > 0 ? (reached / totalDistrictPop) * 100 : 0;
+
+  if (coverage >= floor) return lastGoodT;
+
+  // Floor not met — find lowest threshold that meets floor
+  for (const s of stats) {
+    if (s.coverage >= floor) return s.t;
+  }
+
+  // Floor unreachable — return best coverage
+  let fallbackT = null, fallbackCoverage = 0;
+  for (const s of stats) {
+    if (s.coverage > fallbackCoverage) { fallbackCoverage = s.coverage; fallbackT = s.t; }
+  }
+  return fallbackT;
+}
+
+  // Federal logic: maximize efficiency above coverage floor
+  let bestT = null;
+  let bestEfficiency = -1;
+  for (const s of stats) {
+    if (s.coverage >= floor && s.efficiency > bestEfficiency) {
+      bestEfficiency = s.efficiency;
+      bestT = s.t;
+    }
+  }
+
+  if (bestT === null) {
+    let bestCoverage = 0;
+    for (const s of stats) {
+      if (s.coverage > bestCoverage) { bestCoverage = s.coverage; bestT = s.t; }
+    }
+  }
+
   return bestT;
-}, [allDistrictZips]);
+}, [allDistrictZips, districtType]);
 
-useEffect(() => {
-  if (recommendedThreshold !== null) {
-    setWasteThreshold(recommendedThreshold);
-  }
-}, [recommendedThreshold]);
+  const dmaStats = useMemo(() => {
+    if (!dmaData || !selectedDistrict || !dmaData[selectedDistrict]) return null;
+    if (!stats) return null;
+    const totalDistrictPop = stats.totalDistrictPop;
+    if (totalDistrictPop === 0) return null;
+    const relevantDMAs = dmaData[selectedDistrict].filter(
+      (d) => d.pop_in_cd / totalDistrictPop >= 0.10
+    );
+    if (relevantDMAs.length === 0) return null;
+    const totalDMAPop = relevantDMAs.reduce((s, d) => s + d.total_dma_pop, 0);
+    const reachedInDistrict = relevantDMAs.reduce((s, d) => s + d.pop_in_cd, 0);
+    const wastePct = totalDMAPop > 0 ? ((totalDMAPop - reachedInDistrict) / totalDMAPop) * 100 : 0;
+    const extraWaste = wastePct - stats.wastePct;
+    return { relevantDMAs, totalDMAPop, reachedInDistrict, wastePct, extraWaste, dmaCount: relevantDMAs.length };
+  }, [dmaData, selectedDistrict, stats]);
+
+  useEffect(() => {
+    if (recommendedThreshold !== null) {
+      setWasteThreshold(recommendedThreshold);
+    }
+  }, [recommendedThreshold]);
 
   const zipSet = useMemo(() => new Set(qualifyingZips.map((z) => z.zip)), [qualifyingZips]);
   const zipDataMap = useMemo(() => {
@@ -118,27 +192,83 @@ useEffect(() => {
 
   const ballotpediaUrl = selectedDistrict ? districtType.ballotpedia(selectedDistrict) : null;
 
-const handleCopySpreadsheet = () => {
-  const text = qualifyingZips.map((z) => z.zip).join("\n");
-  navigator.clipboard.writeText(text).then(() => {
-    setCopied("sheet");
-    setTimeout(() => setCopied(false), 2000);
-  });
-};
+  const handleCopySpreadsheet = () => {
+    const text = qualifyingZips.map((z) => z.zip).join("\n");
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied("sheet");
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
 
-const handleCopyComma = () => {
-  const text = qualifyingZips.map((z) => z.zip).join(",");
-  navigator.clipboard.writeText(text).then(() => {
-    setCopied("comma");
-    setTimeout(() => setCopied(false), 2000);
-  });
-};
+  const handleCopyComma = () => {
+    const text = qualifyingZips.map((z) => z.zip).join(",");
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied("comma");
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+
+const renderDMAComparison = () => {
+  const state = selectedDistrict ? selectedDistrict.split("/")[0] : null;
+  
+  if (!dmaStats) return null;
+
+  const dmaWaste = dmaStats.wastePct;
+  const zipWaste = stats.wastePct;
+  const diffPts = dmaWaste - zipWaste;
+  const dollarDiff = Math.round(Math.abs(diffPts) * 10);
+  const dmaNames = dmaStats.relevantDMAs.length === 1
+    ? "the " + dmaStats.relevantDMAs[0].dma_name + " DMA"
+    : "the " + dmaStats.relevantDMAs.slice(0, -1).map((d) => d.dma_name).join(", ") + " and " + dmaStats.relevantDMAs[dmaStats.relevantDMAs.length - 1].dma_name + " DMAs";
+
+const noMapNote = (state === "AK" || state === "HI")
+  ? <div className="dma-methodology">DMA boundary map not available for Alaska or Hawaii.</div>
+  : null;
+
+if (dollarDiff < 50) {
+  return (
+    <div className="dma-comparison">
+      Targeting <span className="dma-names">{dmaNames}</span> and ZIP targeting are roughly equivalent in efficiency —{" "}
+      DMA waste would be <strong className="pct-waste">{dmaWaste.toFixed(1)}%</strong> vs{" "}
+      <strong className="pct-waste">{zipWaste.toFixed(1)}%</strong> with ZIP targeting.
+      <div className="dma-methodology">DMAs included if they reach &ge;10% of the district population.</div>
+      {noMapNote}
+    </div>
+  );
+}
+if (diffPts < 0) {
+  return (
+    <div className="dma-comparison">
+      In this district, targeting <span className="dma-names">{dmaNames}</span> is actually more efficient than ZIP targeting —{" "}
+      DMA waste would be <strong className="pct-reach">{dmaWaste.toFixed(1)}%</strong> vs{" "}
+      <strong className="pct-waste-high">{zipWaste.toFixed(1)}%</strong> with ZIP targeting.
+      <div className="dma-methodology">DMAs included if they reach &ge;10% of the district population.</div>
+      {noMapNote}
+    </div>
+  );
+}
+return (
+  <div className="dma-comparison">
+    Targeting <span className="dma-names">{dmaNames}</span> would waste{" "}
+    <strong className="pct-waste-high">{dmaWaste.toFixed(1)}%</strong>{" "}
+    of your spend on voters outside the district, compared to{" "}
+    <strong className={zipWaste < 30 ? "pct-reach" : zipWaste <= 50 ? "pct-waste" : "pct-waste-high"}>
+      {zipWaste.toFixed(1)}%
+    </strong>{" "}
+    with ZIP targeting. For every $1,000 spent, that's{" "}
+    <strong className="pct-reach dollar-highlight">${dollarDiff}</strong>{" "}
+    more reaching the right voters with ZIP targeting.
+    <div className="dma-methodology">DMAs included if they reach &ge;10% of the district population.</div>
+    {noMapNote}
+  </div>
+);
+  };
 
   return (
     <div className="app">
       <header className="app-header">
         <div className="header-inner">
-          <h1>District ZIP Finder</h1>
+          <h1>District ZIP Finder <span className="header-subtitle">&amp; DMA Waste Calculator</span></h1>
           <p className="subtitle">Find ZIP codes by legislative district, filtered by overlap percentage</p>
         </div>
       </header>
@@ -167,11 +297,11 @@ const handleCopyComma = () => {
             <input
               className="search-input"
               type="text"
-              placeholder="Search districts…"
+              placeholder="Search districts..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
-            {dataLoading && <div className="loading-msg">Loading district data…</div>}
+            {dataLoading && <div className="loading-msg">Loading district data...</div>}
             {dataError && <div className="error-msg">Error: {dataError}</div>}
             <div className="district-list">
               {filteredDistricts.map((d) => (
@@ -190,33 +320,33 @@ const handleCopyComma = () => {
           </section>
 
           <section className="panel">
-<div className="threshold-label-row">
-  <span className="panel-label" style={{marginBottom: 0}}>Waste Threshold</span>
-  {recommendedThreshold !== null && (
-<button
-  className="recommended-btn"
-  onClick={() => setWasteThreshold(recommendedThreshold)}
-  title={"Set waste threshold to " + recommendedThreshold + "%"}
->
-  ✦ Set to recommended: {recommendedThreshold}%  →
-</button>
-  )}
-</div>
-<div className="threshold-stepper">
-  <button className="stepper-btn" onClick={() => setWasteThreshold(Math.max(0, wasteThreshold - 1))}>−</button>
-  <input
-    type="number"
-    min={0}
-    max={99}
-    value={wasteThreshold}
-    onChange={(e) => {
-      const val = Math.min(99, Math.max(0, Number(e.target.value)));
-      if (!isNaN(val)) setWasteThreshold(val);
-    }}
-    className="threshold-input"
-  />
-  <button className="stepper-btn" onClick={() => setWasteThreshold(Math.min(99, wasteThreshold + 1))}>+</button>
-</div>
+            <div className="threshold-label-row">
+              <span className="panel-label" style={{marginBottom: 0}}>Waste Threshold</span>
+              {recommendedThreshold !== null && selectedDistrict && (
+                <button
+                  className="recommended-btn"
+                  onClick={() => setWasteThreshold(recommendedThreshold)}
+                  title={"Set waste threshold to " + recommendedThreshold + "%"}
+                >
+                  Set to recommended: {recommendedThreshold}%  &rarr;
+                </button>
+              )}
+            </div>
+            <div className="threshold-stepper">
+              <button className="stepper-btn" onClick={() => setWasteThreshold(Math.max(0, wasteThreshold - 1))}>-</button>
+              <input
+                type="number"
+                min={0}
+                max={99}
+                value={wasteThreshold}
+                onChange={(e) => {
+                  const val = Math.min(99, Math.max(0, Number(e.target.value)));
+                  if (!isNaN(val)) setWasteThreshold(val);
+                }}
+                className="threshold-input"
+              />
+              <button className="stepper-btn" onClick={() => setWasteThreshold(Math.min(99, wasteThreshold + 1))}>+</button>
+            </div>
             <input
               type="range" min={0} max={99} step={1}
               value={wasteThreshold}
@@ -232,38 +362,41 @@ const handleCopyComma = () => {
           {selectedDistrict && ballotpediaUrl && (
             <section className="panel">
               <a href={ballotpediaUrl} target="_blank" rel="noopener noreferrer" className="ballotpedia-link">
-                🗳 View {selectedDistrict} on Ballotpedia ↗
+                View {selectedDistrict} on Ballotpedia
               </a>
             </section>
           )}
 
-{selectedDistrict && qualifyingZips.length > 0 && (
-  <section className="panel">
-    <label className="panel-label">Export ZIPs</label>
-    <div className="copy-buttons">
-      <button className="copy-btn-large" onClick={handleCopySpreadsheet}>
-        {copied === "sheet" ? "✓ Copied!" : "📋 Copy for Spreadsheet"}
-        <span className="copy-btn-sub">One ZIP per line</span>
-      </button>
-      <button className="copy-btn-large" onClick={handleCopyComma}>
-        {copied === "comma" ? "✓ Copied!" : "📋 Copy with commas separating ZIPs"}
-        <span className="copy-btn-sub">Comma-separated</span>
-      </button>
-    </div>
-  </section>
-)}
-
+          {selectedDistrict && qualifyingZips.length > 0 && (
+            <section className="panel">
+              <label className="panel-label">Export ZIPs</label>
+              <div className="copy-buttons">
+                <button className="copy-btn-large" onClick={handleCopySpreadsheet}>
+                  {copied === "sheet" ? "Copied!" : "Copy for Spreadsheet"}
+                  <span className="copy-btn-sub">One ZIP per line</span>
+                </button>
+                <button className="copy-btn-large" onClick={handleCopyComma}>
+                  {copied === "comma" ? "Copied!" : "Copy with commas separating ZIPs"}
+                  <span className="copy-btn-sub">Comma-separated</span>
+                </button>
+              </div>
+            </section>
+          )}
         </aside>
 
         <div className="content">
           {selectedDistrict && stats && (
             <section className="stats-bar">
-              <div className="stats-insight">
-                Targeting <strong>{qualifyingZips.length} ZIP{qualifyingZips.length !== 1 ? "s" : ""}</strong> reaches{" "}
-                <strong className={stats.coveragePct >= 90 ? "pct-reach" : "pct-waste-high"}>{stats.coveragePct.toFixed(1)}%</strong> of voters in{" "}
-                <strong>{selectedDistrict}</strong> ({stats.reachedPop.toLocaleString()} of {stats.totalDistrictPop.toLocaleString()} people).{" "}
-                You would waste <strong className={stats.wastePct < 30 ? "pct-reach" : stats.wastePct <= 50 ? "pct-waste" : "pct-waste-high"}>{stats.wastePct.toFixed(1)}%</strong> of your spend on people outside the district.
-              </div>
+<div className="stats-insights-row">
+  <div className="stats-insight">
+    Targeting <strong>{qualifyingZips.length} ZIP{qualifyingZips.length !== 1 ? "s" : ""}</strong> reaches{" "}
+    <strong className={stats.coveragePct >= 90 ? "pct-reach" : "pct-waste-high"}>{stats.coveragePct.toFixed(1)}%</strong> of voters in{" "}
+    <strong>{selectedDistrict}</strong> ({stats.reachedPop.toLocaleString()} of {stats.totalDistrictPop.toLocaleString()} people).{" "}
+    You would waste <strong className={stats.wastePct < 30 ? "pct-reach" : stats.wastePct <= 50 ? "pct-waste" : "pct-waste-high"}>{stats.wastePct.toFixed(1)}%</strong> of your spend on people outside the district.
+  </div>
+  {renderDMAComparison()}
+</div>
+
               <div className="stats-pills">
                 <div className="stat-pill">
                   <span className="stat-pill-value">{stats.reachedPop.toLocaleString()}</span>
@@ -281,6 +414,34 @@ const handleCopyComma = () => {
                   <span className={"stat-pill-value " + (stats.coveragePct >= 90 ? "value-good" : "value-warn")}>{stats.coveragePct.toFixed(1)}%</span>
                   <span className="stat-pill-label">District coverage</span>
                 </div>
+                <div className="stats-pills-spacer" />
+                {dmaStats && (
+                  <>
+                    <div className="stat-pill stat-pill-dma">
+                      <span className={"stat-pill-value " + (dmaStats.wastePct < 30 ? "value-good" : dmaStats.wastePct <= 50 ? "value-amber" : "value-warn")}>
+                        {dmaStats.wastePct.toFixed(1)}%
+                      </span>
+                      <span className="stat-pill-label">DMA spend waste</span>
+                    </div>
+                    <div className="stat-pill stat-pill-dma">
+                      <span className="stat-pill-value">{dmaStats.dmaCount}</span>
+                      <span className="stat-pill-label">DMAs required</span>
+                    </div>
+                  </>
+                )}
+              </div>
+
+              <div className="dma-toggle-row">
+                <div style={{flex: 1}} />
+                <button
+                  className={"dma-toggle-btn" + (showDMA ? " active" : "")}
+                  onClick={() => setShowDMA(!showDMA)}
+                >
+                  <span className="toggle-track">
+                    <span className="toggle-thumb" />
+                  </span>
+                  {showDMA ? "Hide DMA Boundaries on Map" : "Show DMA Boundaries on Map"}
+                </button>
               </div>
             </section>
           )}
@@ -288,10 +449,18 @@ const handleCopyComma = () => {
           <section className="map-section">
             {!selectedDistrict ? (
               <div className="map-placeholder">
-                <span>← Select a district to see its ZIP codes on the map</span>
+                <span>Select a district to see its ZIP codes on the map</span>
               </div>
             ) : (
-              <ZipMap geoJSON={geoJSON} zipData={zipDataMap} loading={geoLoading} error={geoError} />
+              <ZipMap
+                geoJSON={geoJSON}
+                zipData={zipDataMap}
+                loading={geoLoading}
+                error={geoError}
+                showDMA={showDMA}
+                setShowDMA={setShowDMA}
+                dmaStats={dmaStats}
+              />
             )}
           </section>
 
@@ -302,7 +471,7 @@ const handleCopyComma = () => {
                   {qualifyingZips.length} ZIP{qualifyingZips.length !== 1 ? "s" : ""} in{" "}
                   <strong>{selectedDistrict}</strong>
                   {wasteThreshold > 0 && (
-                    <span className="threshold-badge">≥{100 - wasteThreshold}% overlap</span>
+                    <span className="threshold-badge">&ge;{100 - wasteThreshold}% overlap</span>
                   )}
                 </h2>
               </div>
@@ -312,37 +481,66 @@ const handleCopyComma = () => {
                 </div>
               ) : (
                 <div className="zip-table-wrapper">
-                  <table className="zip-table">
-                    <thead>
-                      <tr>
-                        <th style={{width:"110px"}}>ZIP Code</th>
-                        <th style={{width:"220px"}}>% in District</th>
-                        <th>Pop. in District</th>
-                        <th>Total ZIP Pop.</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {qualifyingZips.map((z) => (
-                        <tr key={z.zip}>
-                          <td className="zip-cell">{z.zip}</td>
-                          <td>
-                            <div className="overlap-bar-wrap">
-                              <div className="overlap-bar-track">
-                                <div
-                                  className="overlap-bar"
-                                  style={{ width: (z.overlap * 100).toFixed(1) + "%" }}
-                                />
-                              </div>
-                              <span className="overlap-pct">{(z.overlap * 100).toFixed(1)}%</span>
-                            </div>
-                          </td>
-                          <td>{z.district_pop != null ? z.district_pop.toLocaleString() : "—"}</td>
-                          <td>{z.zip_pop != null ? z.zip_pop.toLocaleString() : "—"}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+  <table className="zip-table">
+    <thead>
+      <tr>
+        <th style={{width:"110px"}}>ZIP Code</th>
+        <th style={{width:"220px"}}>% in District</th>
+        <th>Pop. in District</th>
+        <th>Total ZIP Pop.</th>
+      </tr>
+    </thead>
+    <tbody>
+      {qualifyingZips.map((z) => (
+        <tr key={z.zip}>
+          <td className="zip-cell">{z.zip}</td>
+          <td>
+            <div className="overlap-bar-wrap">
+              <div className="overlap-bar-track">
+                <div className="overlap-bar" style={{ width: (z.overlap * 100).toFixed(1) + "%" }} />
+              </div>
+              <span className="overlap-pct">{(z.overlap * 100).toFixed(1)}%</span>
+            </div>
+          </td>
+          <td>{z.district_pop != null ? z.district_pop.toLocaleString() : "-"}</td>
+          <td>{z.zip_pop != null ? z.zip_pop.toLocaleString() : "-"}</td>
+        </tr>
+      ))}
+      {(() => {
+        const excludedZips = allDistrictZips
+          .filter((z) => z.overlap < (100 - wasteThreshold) / 100)
+          .sort((a, b) => b.overlap - a.overlap);
+        if (excludedZips.length === 0) return null;
+        return (
+          <>
+            <tr className="excluded-divider-row">
+              <td colSpan={4}>
+                <div className="excluded-divider">
+                  Not included at current threshold — these ZIPs will not be exported
                 </div>
+              </td>
+            </tr>
+            {excludedZips.map((z) => (
+              <tr key={z.zip} className="zip-row-excluded">
+                <td className="zip-cell zip-cell-excluded"><s>{z.zip}</s></td>
+                <td>
+                  <div className="overlap-bar-wrap">
+                    <div className="overlap-bar-track">
+                      <div className="overlap-bar overlap-bar-excluded" style={{ width: (z.overlap * 100).toFixed(1) + "%" }} />
+                    </div>
+                    <span className="overlap-pct">{(z.overlap * 100).toFixed(1)}%</span>
+                  </div>
+                </td>
+                <td>{z.district_pop != null ? z.district_pop.toLocaleString() : "-"}</td>
+                <td>{z.zip_pop != null ? z.zip_pop.toLocaleString() : "-"}</td>
+              </tr>
+            ))}
+          </>
+        );
+      })()}
+    </tbody>
+  </table>
+</div>
               )}
             </section>
           )}

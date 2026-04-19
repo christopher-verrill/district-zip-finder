@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect } from "react";
 import { DISTRICT_TYPES } from "./districtConfig";
 import { useDistrictData } from "./useDistrictData";
 import { useZipGeoJSON } from "./useZipGeoJSON";
+import { computeRecommendedThreshold } from "./recommendedThreshold";
 import ZipMap from "./ZipMap";
 import "./App.css";
 
@@ -56,107 +57,8 @@ export default function App() {
   }, [allDistrictZips, qualifyingZips]);
 
 const recommendedThreshold = useMemo(() => {
-  if (!allDistrictZips.length) return null;
-  const totalDistrictPop = allDistrictZips.reduce((s, z) => s + (z.district_pop || 0), 0);
-  if (totalDistrictPop === 0) return null;
-
-  const floor = districtType.recommendedCoverageFloor || 99;
-  const wasteCeiling = districtType.recommendedWasteCeiling ?? null;
-
-  // Pre-compute stats for all thresholds
-  const stats = [];
-  for (let t = 0; t <= 99; t++) {
-    const minOverlap = (100 - t) / 100;
-    const zips = allDistrictZips.filter((z) => z.overlap >= minOverlap);
-    const reached = zips.reduce((s, z) => s + (z.district_pop || 0), 0);
-    const totalSpend = zips.reduce((s, z) => s + (z.zip_pop || 0), 0);
-    const outsidePop = zips.reduce((s, z) => s + Math.max(0, (z.zip_pop || 0) - (z.district_pop || 0)), 0);
-    const coverage = totalDistrictPop > 0 ? (reached / totalDistrictPop) * 100 : 0;
-    const waste = totalSpend > 0 ? (outsidePop / totalSpend) * 100 : 0;
-    const efficiency = totalSpend > 0 ? reached / totalSpend : 0;
-    stats.push({ t, coverage, waste, efficiency });
-  }
-
-if (wasteCeiling !== null) {
-  // Sort ZIPs by overlap descending
-  const sorted = [...allDistrictZips].sort((a, b) => b.overlap - a.overlap);
-
-  let cumulativeReached = 0;
-  let cumulativeSpend = 0;
-  let lastGoodT = 0;
-  let prevWastePct = 0;
-
-  for (let i = 0; i < sorted.length; i++) {
-    const z = sorted[i];
-
-    // Hard cutoff — never include ZIPs below 1% overlap
-    if (z.overlap < 0.01) break;
-
-    // Compute waste BEFORE adding this ZIP
-    const wasteBefore = cumulativeSpend > 0
-      ? ((cumulativeSpend - cumulativeReached) / cumulativeSpend) * 100
-      : 0;
-
-    // Compute waste AFTER adding this ZIP
-    const newSpend = cumulativeSpend + (z.zip_pop || 0);
-    const newReached = cumulativeReached + (z.district_pop || 0);
-    const wasteAfter = newSpend > 0
-      ? ((newSpend - newReached) / newSpend) * 100
-      : 0;
-
-    const wasteIncrease = wasteAfter - wasteBefore;
-    const marginalCoverage = stats[0] ? (z.district_pop || 0) / (allDistrictZips.reduce((s, z) => s + (z.district_pop || 0), 0)) * 100 : 0;
-
-    // Stop if this ZIP raises overall waste by >10pp AND contributes <1% district coverage
-    if (wasteIncrease > 0.5 && marginalCoverage < 1) break;
-
-    cumulativeReached = newReached;
-    cumulativeSpend = newSpend;
-    lastGoodT = Math.round((1 - z.overlap) * 100);
-  }
-
-  // Check if we met the coverage floor
-  const minOverlap = (100 - lastGoodT) / 100;
-  const zips = allDistrictZips.filter((z) => z.overlap >= minOverlap);
-  const reached = zips.reduce((s, z) => s + (z.district_pop || 0), 0);
-  const totalDistrictPop = allDistrictZips.reduce((s, z) => s + (z.district_pop || 0), 0);
-  const coverage = totalDistrictPop > 0 ? (reached / totalDistrictPop) * 100 : 0;
-
-  if (coverage >= floor) return lastGoodT;
-
-  // Floor not met — find lowest threshold that meets floor
-  for (const s of stats) {
-    if (s.coverage >= floor) return s.t;
-  }
-
-  // Floor unreachable — return best coverage
-  let fallbackT = null, fallbackCoverage = 0;
-  for (const s of stats) {
-    if (s.coverage > fallbackCoverage) { fallbackCoverage = s.coverage; fallbackT = s.t; }
-  }
-  return fallbackT;
-}
-
-  // Federal logic: maximize efficiency above coverage floor
-  let bestT = null;
-  let bestEfficiency = -1;
-  for (const s of stats) {
-    if (s.coverage >= floor && s.efficiency > bestEfficiency) {
-      bestEfficiency = s.efficiency;
-      bestT = s.t;
-    }
-  }
-
-  if (bestT === null) {
-    let bestCoverage = 0;
-    for (const s of stats) {
-      if (s.coverage > bestCoverage) { bestCoverage = s.coverage; bestT = s.t; }
-    }
-  }
-
-  return bestT;
+  return computeRecommendedThreshold(allDistrictZips, districtType);
 }, [allDistrictZips, districtType]);
-
   const dmaStats = useMemo(() => {
     if (!dmaData || !selectedDistrict || !dmaData[selectedDistrict]) return null;
     if (!stats) return null;

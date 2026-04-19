@@ -127,15 +127,15 @@ export default function App() {
     const diffPts = dmaWaste - zipWaste;
     const dollarDiff = Math.round(Math.abs(diffPts) * 10);
     const dmaNames = dmaStats.relevantDMAs.length === 1
-      ? "the " + dmaStats.relevantDMAs[0].dma_name + " DMA"
-      : "the " + dmaStats.relevantDMAs.slice(0, -1).map((d) => d.dma_name).join(", ") + " and " + dmaStats.relevantDMAs[dmaStats.relevantDMAs.length - 1].dma_name + " DMAs";
+      ? dmaStats.relevantDMAs[0].dma_name + " DMA"
+      : dmaStats.relevantDMAs.slice(0, -1).map((d) => d.dma_name).join(", ") + " and " + dmaStats.relevantDMAs[dmaStats.relevantDMAs.length - 1].dma_name + " DMAs";
 const noMapNote = (state === "AK" || state === "HI") && !isMobile
   ? <div className="dma-methodology">DMA boundary map not available for Alaska or Hawaii.</div>
   : null;
     if (dollarDiff < 50) {
       return (
         <div className="dma-comparison">
-          Targeting <span className="dma-names">{dmaNames}</span> and ZIP targeting are roughly equivalent in efficiency —{" "}
+          Targeting the <span className="dma-names">{dmaNames}</span> and ZIP targeting are roughly equivalent in efficiency —{" "}
           DMA waste would be <strong className="pct-waste">{dmaWaste.toFixed(1)}%</strong> vs{" "}
           <strong className="pct-waste">{zipWaste.toFixed(1)}%</strong> with ZIP targeting.
           <div className="dma-methodology">DMAs included if they reach &ge;10% of the district population.</div>
@@ -146,7 +146,7 @@ const noMapNote = (state === "AK" || state === "HI") && !isMobile
     if (diffPts < 0) {
       return (
         <div className="dma-comparison">
-          In this district, targeting <span className="dma-names">{dmaNames}</span> is actually more efficient than ZIP targeting —{" "}
+          In this district, targeting the <span className="dma-names">{dmaNames}</span> is actually more efficient than ZIP targeting —{" "}
           DMA waste would be <strong className="pct-reach">{dmaWaste.toFixed(1)}%</strong> vs{" "}
           <strong className="pct-waste-high">{zipWaste.toFixed(1)}%</strong> with ZIP targeting.
           <div className="dma-methodology">DMAs included if they reach &ge;10% of the district population.</div>
@@ -156,7 +156,7 @@ const noMapNote = (state === "AK" || state === "HI") && !isMobile
     }
     return (
       <div className="dma-comparison">
-        Targeting <span className="dma-names">{dmaNames}</span> would waste{" "}
+        Targeting the <span className="dma-names">{dmaNames}</span> would waste{" "}
         <strong className="pct-waste-high">{dmaWaste.toFixed(1)}%</strong>{" "}
         of your spend on voters outside the district, compared to{" "}
         <strong className={zipWaste < 30 ? "pct-reach" : zipWaste <= 50 ? "pct-waste" : "pct-waste-high"}>

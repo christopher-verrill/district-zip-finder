@@ -851,3 +851,9 @@ body { font-family: 'Lato', system-ui, sans-serif; background: var(--bg); color:
 .zip-row-excluded:hover td { background: #eeede9; }
 .zip-cell-excluded { color: var(--text-muted); }
 .overlap-bar-excluded { background: #b0aca4; }
+
+.mobile-dma-content .dma-names {
+  font-style: italic;
+  color: var(--text);
+  font-size: inherit;
+}

@@ -857,3 +857,7 @@ body { font-family: 'Lato', system-ui, sans-serif; background: var(--bg); color:
   color: var(--text);
   font-size: inherit;
 }
+
+.mobile-dma-content .dma-methodology {
+  display: none;
+}

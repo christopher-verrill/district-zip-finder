@@ -373,7 +373,7 @@ const noMapNote = (state === "AK" || state === "HI") && !isMobile
   dmaStats={dmaStats}
 />
 </div>
-<div className="dma-methodology" style={{padding: "8px 12px", fontSize: "0.7rem", fontStyle: "italic"}}>
+<div className="mobile-dma-note" style={{padding: "8px 12px", fontSize: "0.7rem", fontStyle: "italic", color: "var(--text-muted)"}}>
   DMAs included if they reach &ge;10% of the district population.
   {(selectedDistrict && (selectedDistrict.split("/")[0] === "AK" || selectedDistrict.split("/")[0] === "HI")) && (
     <> DMA boundary map not available for Alaska or Hawaii.</>

@@ -358,9 +358,9 @@ const noMapNote = (state === "AK" || state === "HI") && !isMobile
             <span className="mobile-stat-label">DMAs Required</span>
           </div>
         </div>
-                <div className="mobile-dma-insight">
+
           {renderDMAComparison()}
-        </div>
+
 <div className="mobile-dma-map">
 <ZipMap
   key={"mobile-dma-" + selectedDistrict + "-" + (geoJSON ? geoJSON.features.length : 0)}

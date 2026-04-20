@@ -138,7 +138,7 @@ const noMapNote = (state === "AK" || state === "HI") && !isMobile
           Targeting the <span className="dma-names">{dmaNames}</span> and ZIP targeting are roughly equivalent in efficiency —{" "}
           DMA waste would be <strong className="pct-waste">{dmaWaste.toFixed(1)}%</strong> vs{" "}
           <strong className="pct-waste">{zipWaste.toFixed(1)}%</strong> with ZIP targeting.
-          <div className="dma-methodology">DMAs included if they reach &ge;10% of the district population. DMA boundaries are approximate and for illustrative purposes only.</div>
+          <div className="dma-methodology">DMAs included if they reach &ge;10% of the district population. </div>
           {noMapNote}
         </div>
       );
@@ -149,7 +149,7 @@ const noMapNote = (state === "AK" || state === "HI") && !isMobile
           In this district, targeting the <span className="dma-names">{dmaNames}</span> is actually more efficient than ZIP targeting —{" "}
           DMA waste would be <strong className="pct-reach">{dmaWaste.toFixed(1)}%</strong> vs{" "}
           <strong className="pct-waste-high">{zipWaste.toFixed(1)}%</strong> with ZIP targeting.
-          <div className="dma-methodology">DMAs included if they reach &ge;10% of the district population. DMA boundaries are approximate and for illustrative purposes only.</div>
+          <div className="dma-methodology">DMAs included if they reach &ge;10% of the district population. </div>
           {noMapNote}
         </div>
       );
@@ -165,7 +165,7 @@ const noMapNote = (state === "AK" || state === "HI") && !isMobile
         with ZIP targeting. For every $1,000 spent, that is{" "}
         <strong className="pct-reach dollar-highlight">${dollarDiff}</strong>{" "}
         more reaching the right voters with ZIP targeting.
-        <div className="dma-methodology">DMAs included if they reach &ge;10% of the district population. DMA boundaries are approximate and for illustrative purposes only.</div>
+        <div className="dma-methodology">DMAs included if they reach &ge;10% of the district population. </div>
         {noMapNote}
       </div>
     );
@@ -374,7 +374,7 @@ const noMapNote = (state === "AK" || state === "HI") && !isMobile
 />
 </div>
 <div className="mobile-dma-note" style={{padding: "8px 12px", fontSize: "0.7rem", fontStyle: "italic", color: "var(--text-muted)"}}>
-  DMAs included if they reach &ge;10% of the district population. DMA boundaries are approximate and for illustrative purposes only.
+  DMAs included if they reach &ge;10% of the district population. 
   {(selectedDistrict && (selectedDistrict.split("/")[0] === "AK" || selectedDistrict.split("/")[0] === "HI")) && (
     <> DMA boundary map not available for Alaska or Hawaii.</>
   )}

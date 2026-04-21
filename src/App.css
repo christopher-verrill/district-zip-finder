@@ -22,8 +22,9 @@
   --radius: 7px;
 }
 
+html, body, #root { height: 100%; margin: 0; padding: 0; }
 body { font-family: 'Lato', system-ui, sans-serif; background: var(--bg); color: var(--text); }
-.app { display: flex; flex-direction: column; min-height: 100vh; }
+.app { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
 
 /* Header */
 .app-header {
@@ -41,7 +42,7 @@ body { font-family: 'Lato', system-ui, sans-serif; background: var(--bg); color:
 .subtitle { font-size: 0.82rem; opacity: 0.8; margin-top: 2px; font-family: 'Lato', sans-serif; }
 
 /* Layout */
-.app-main { display: flex; flex: 1; height: calc(100vh - 64px); overflow: hidden; }
+.app-main { display: flex; flex: 1; min-height: 0; overflow: hidden; }
 
 /* Sidebar */
 .sidebar {
@@ -234,10 +235,10 @@ body { font-family: 'Lato', system-ui, sans-serif; background: var(--bg); color:
 .copy-btn-sub { font-size: 0.72rem; font-weight: 400; opacity: 0.75; }
 
 /* Content */
-.content { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 0; }
+.content { flex: 1; display: flex; flex-direction: column; overflow-y: auto; min-width: 0; }
 
 /* Map */
-.map-section { flex: 1; min-height: 0; position: relative; background: #e8e4de; }
+.map-section { flex: 1; min-height: 400px; position: relative; background: #e8e4de; }
 .map-placeholder {
   height: 100%;
   display: flex;
@@ -270,12 +271,14 @@ body { font-family: 'Lato', system-ui, sans-serif; background: var(--bg); color:
   border-top: 1px solid var(--border);
   border-bottom: 1px solid var(--border);
   padding: 12px 20px;
-  flex-shrink: 0;
+  flex: 0 0 auto;
   display: flex;
   flex-direction: column;
   gap: 10px;
 }
 .stats-insight {
+  flex: 1;
+  min-width: 280px;
   font-size: 1rem;
   line-height: 1.7;
   color: var(--text);
@@ -354,7 +357,8 @@ body { font-family: 'Lato', system-ui, sans-serif; background: var(--bg); color:
 .mobile-layout {
   display: flex;
   flex-direction: column;
-  min-height: calc(100vh - 56px);
+  min-height: 0;
+  overflow-y: auto;
   background: var(--bg);
 }
 
@@ -789,11 +793,13 @@ body { font-family: 'Lato', system-ui, sans-serif; background: var(--bg); color:
 .stats-insights-row {
   display: flex;
   gap: 12px;
-  align-items: stretch;
+  align-items: flex-start;
+  flex-wrap: wrap;
 }
 
 .dma-comparison {
   flex: 1;
+  min-width: 280px;
   font-size: 0.9rem;
   line-height: 1.6;
   color: var(--text);
